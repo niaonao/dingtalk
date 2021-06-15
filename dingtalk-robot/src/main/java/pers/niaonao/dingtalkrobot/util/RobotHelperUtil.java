@@ -4,19 +4,26 @@ import com.dingtalk.api.DefaultDingTalkClient;
 import com.dingtalk.api.DingTalkClient;
 import com.dingtalk.api.request.OapiRobotSendRequest ;
 import com.dingtalk.api.response.OapiRobotSendResponse;
-import com.taobao.api.ApiException;
+import com.taobao.api.TaobaoRequest;
+import com.taobao.api.TaobaoResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 
 import java.util.Arrays;
 import java.util.List;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import org.apache.commons.codec.binary.Base64;
+import pers.niaonao.dingtalkrobot.enums.MsgTypeEnum;
 
+import java.net.URLEncoder;
 /**
  * @className: RobotHelperUtil
  * @description: 机器人工具类
  *      每个机器人每分钟最多发送20条
  *      限制6 个机器人/群
+ *      https://developers.dingtalk.com/document/app/custom-robot-access/title-nfv-794-g71
  * @author: niaonao
  * @date: 2019/7/6
  **/
@@ -26,20 +33,20 @@ public class RobotHelperUtil {
     /**
      * 钉钉群设置 webhook, 支持重置
      */
-    private static final String ACCESS_TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=36ba0cc82d41d3c6aaef7d2c09c9f14de0727069edbc498b5c9d88edb72db227";
+    private static final String ACCESS_TOKEN = "https://oapi.dingtalk.com/robot/send?access_token=40d2e1ef8c83b0ade5c7d2ae43553988c68373c1fa0901dcd701b0c2f5f90c59";
     /**
-     * 消息类型
+     * 加签密钥，支持重置
      */
-    private static final String MSG_TYPE_TEXT = "text";
-    private static final String MSG_TYPE_LINK = "link";
-    private static final String MSG_TYPE_MARKDOWN = "markdown";
-    private static final String MSG_TYPE_ACTION_CARD = "actionCard";
-    private static final String MSG_TYPE_FEED_CARD = "feedCard";
+    private static final String SECRET = "SECc90f8dac81401632962362d280f79a86e2875d8fa2282c7ee80249385be76b38";
+    /**
+     * 安全设置：是否加签
+     */
+    private static boolean isSign = true;
 
     /**
      * 客户端实例
      */
-    public static DingTalkClient client = new DefaultDingTalkClient(ACCESS_TOKEN);
+    public static DingTalkClient client = new DefaultDingTalkClient(getServerUrl(ACCESS_TOKEN, SECRET));
 
     /**
      * @description: 官方演示示例
@@ -50,7 +57,6 @@ public class RobotHelperUtil {
      * @date: 2019/7/6
      */
     public static void sdkDemoJava() {
-        DingTalkClient client = RobotHelperUtil.client;
         OapiRobotSendRequest request = new OapiRobotSendRequest();
         request.setMsgtype("text");
         OapiRobotSendRequest.Text text = new OapiRobotSendRequest.Text();
@@ -77,11 +83,7 @@ public class RobotHelperUtil {
                 "> ![screenshot](https://gw.alipayobjects.com/zos/skylark-tools/public/files/84111bbeba74743d2771ed4f062d1f25.png)\n"  +
                 "> ###### 10点20分发布 [天气](http://www.thinkpage.cn/) \n");
         request.setMarkdown(markdown);
-        try {
-            client.execute(request);
-        } catch (ApiException e) {
-            log.error("[ApiException]: 消息发送演示示例, 异常捕获{}", e.getMessage());
-        }
+        requestExecute(request);
     }
 
     /**
@@ -98,35 +100,32 @@ public class RobotHelperUtil {
             return null;
         }
 
+        OapiRobotSendRequest.At at = new OapiRobotSendRequest.At();
+        at.setIsAtAll(isAtAll);
+        //atMobiles	被@人的手机号
+        if (!CollectionUtils.isEmpty(mobileList)) {
+            at.setAtMobiles(mobileList);
+            if (!isAtAll) {
+                content = content + "\n";
+                for (String mobile : mobileList) {
+                    content = content + "@" + mobile;
+                }
+            }
+        }
         //参数	参数类型	必须	说明
-        //msgtype	String	是	消息类型，此时固定为：text
-        //content	String	是	消息内容
-        //atMobiles	Array	否	被@人的手机号(在content里添加@人的手机号)
-        //isAtAll	bool	否	@所有人时：true，否则为：false
         OapiRobotSendRequest.Text text = new OapiRobotSendRequest.Text();
         text.setContent(content);
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        if (!CollectionUtils.isEmpty(mobileList)) {
-            // 发送消息并@ 以下手机号联系人
-            OapiRobotSendRequest.At at = new OapiRobotSendRequest.At();
-            at.setAtMobiles(mobileList);
-            at.setIsAtAll(isAtAll ? "true" : "false");
-            request.setAt(at);
-        }
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_TEXT);
+        request.setAt(at);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_TEXT.getValue());
         request.setText(text);
 
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
-        try {
-            response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送普通文本消息]: 发送消息失败, 异常捕获{}", e.getMessage());
-        }
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
         return response;
     }
 
     /**
-     * @description: 发送link 类型消息
+     * @description: 发送link 类型消息，点击标题实现在钉钉外部打开链接
      * @param title 消息标题
      * @param text  消息内容
      * @param messageUrl     点击消息后跳转的url
@@ -139,12 +138,6 @@ public class RobotHelperUtil {
         if (!DataValidUtil.checkNotEmpty(title, text, messageUrl)) {
             return null;
         }
-        //参数	参数类型	必须	说明
-        //msgtype	String	是	消息类型，此时固定为：link
-        //title	String	是	消息标题
-        //text	String	是	消息内容。如果太长只会部分展示
-        //messageUrl	String	是	点击消息跳转的URL
-        //picUrl	String	否	图片URL
         OapiRobotSendRequest.Link link = new OapiRobotSendRequest.Link();
         link.setTitle(title);
         link.setText(text);
@@ -152,15 +145,10 @@ public class RobotHelperUtil {
         link.setPicUrl(picUrl);
 
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_LINK);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_LINK.getValue());
         request.setLink(link);
 
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
-        try {
-            response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送link 类型消息]: 发送消息失败, 异常捕获{}", e.getMessage());
-        }
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
         return response;
     }
 
@@ -179,32 +167,27 @@ public class RobotHelperUtil {
         if (!DataValidUtil.checkNotEmpty(title, markdownText)) {
             return null;
         }
-        //参数	类型	必选	说明
-        //msgtype	String	是	此消息类型为固定markdown
-        //title	String	是	首屏会话透出的展示内容
-        //text	String	是	markdown格式的消息
-        //atMobiles	Array	否	被@人的手机号(在text内容里要有@手机号)
-        //isAtAll	bool	否	@所有人时：true，否则为：false
+        OapiRobotSendRequest.At at = new OapiRobotSendRequest.At();
+        at.setIsAtAll(isAtAll);
+        if (!CollectionUtils.isEmpty(mobileList)) {
+            at.setAtMobiles(mobileList);
+            if (!isAtAll) {
+                markdownText = markdownText + "\n";
+                for (String mobile : mobileList) {
+                    markdownText = markdownText + "@" + mobile;
+                }
+            }
+        }
         OapiRobotSendRequest.Markdown markdown = new OapiRobotSendRequest.Markdown();
         markdown.setTitle(title);
         markdown.setText(markdownText);
 
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_MARKDOWN);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_MARKDOWN.getValue());
         request.setMarkdown(markdown);
-        if (!CollectionUtils.isEmpty(mobileList)) {
-            OapiRobotSendRequest.At at = new OapiRobotSendRequest.At();
-            at.setIsAtAll(isAtAll ? "true" : "false");
-            at.setAtMobiles(mobileList);
-            request.setAt(at);
-        }
+        request.setAt(at);
 
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
-        try {
-            response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送link 类型消息]: 发送消息失败, 异常捕获{}", e.getMessage());
-        }
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
         return response;
     }
 
@@ -215,23 +198,21 @@ public class RobotHelperUtil {
      * @param singleTitle   单个按钮的标题
      * @param singleURL 单个按钮的跳转链接
      * @param btnOrientation    是否横向排列(true 横向排列, false 纵向排列)
-     * @param hideAvatar    是否隐藏发消息者头像(true 隐藏头像, false 不隐藏)
+     *      参数	类型	必选	说明
+     *      msgtype	string	true	此消息类型为固定actionCard
+     *      title	string	true	首屏会话透出的展示内容
+     *      text	string	true	markdown格式的消息
+     *      singleTitle	string	true	单个按钮的方案。(设置此项和singleURL后btns无效)
+     *      singleURL	string	true	点击singleTitle按钮触发的URL
+     *      btnOrientation	string	false	0-按钮竖直排列，1-按钮横向排列
      * @return: com.dingtalk.api.response.OapiRobotSendResponse
      * @author: niaonao
      * @date: 2019/7/6
      */
-    public static OapiRobotSendResponse sendMessageByActionCardSingle(String title, String markdownText, String singleTitle, String singleURL, boolean btnOrientation, boolean hideAvatar) {
+    public static OapiRobotSendResponse sendMessageByActionCardSingle(String title, String markdownText, String singleTitle, String singleURL, boolean btnOrientation) {
         if (!DataValidUtil.checkNotEmpty(title, markdownText)) {
             return null;
         }
-        //参数	类型	必选	说明
-        //    msgtype	string	true	此消息类型为固定actionCard
-        //    title	string	true	首屏会话透出的展示内容
-        //    text	string	true	markdown格式的消息
-        //    singleTitle	string	true	单个按钮的方案。(设置此项和singleURL后btns无效)
-        //    singleURL	string	true	点击singleTitle按钮触发的URL
-        //    btnOrientation	string	false	0-按钮竖直排列，1-按钮横向排列
-        //    hideAvatar	string	false	0-正常发消息者头像，1-隐藏发消息者头像
         OapiRobotSendRequest.Actioncard actionCard = new OapiRobotSendRequest.Actioncard();
         actionCard.setTitle(title);
         actionCard.setText(markdownText);
@@ -239,18 +220,11 @@ public class RobotHelperUtil {
         actionCard.setSingleURL(singleURL);
         // 此处默认为0
         actionCard.setBtnOrientation(btnOrientation ? "1" : "0");
-        // 此处默认为0
-        actionCard.setHideAvatar(hideAvatar ? "1" : "0");
 
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_ACTION_CARD);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_ACTION_CARD.getValue());
         request.setActionCard(actionCard);
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
-        try {
-            response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送ActionCard 类型消息]: 整体跳转ActionCard类型的发送消息失败, 异常捕获{}", e.getMessage());
-        }
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
         return response;
     }
 
@@ -260,46 +234,41 @@ public class RobotHelperUtil {
      * @param markdownText  文本
      * @param btns  按钮列表
      * @param btnOrientation    是否横向排列(true 横向排列, false 纵向排列)
-     * @param hideAvatar    是否隐藏发消息者头像(true 隐藏头像, false 不隐藏)
+     *      参数	类型	必选	说明
+     *      msgtype	string	true	此消息类型为固定actionCard
+     *      title	string	true	首屏会话透出的展示内容
+     *      text	string	true	markdown格式的消息
+     *      btns	array	true	按钮的信息：title-按钮方案，actionURL-点击按钮触发的URL
+     *      btnOrientation	string	false	0-按钮竖直排列，1-按钮横向排列
      * @return: com.dingtalk.api.response.OapiRobotSendResponse
      * @author: niaonao
      * @date: 2019/7/6
      */
-    public static OapiRobotSendResponse sendMessageByActionCardMulti(String title, String markdownText, List<OapiRobotSendRequest.Btns> btns, boolean btnOrientation, boolean hideAvatar) {
+    public static OapiRobotSendResponse sendMessageByActionCardMulti(String title, String markdownText, List<OapiRobotSendRequest.Btns> btns, boolean btnOrientation) {
         if (!DataValidUtil.checkNotEmpty(title, markdownText) || CollectionUtils.isEmpty(btns)) {
             return null;
         }
-        //参数	类型	必选	说明
-        //msgtype	string	true	此消息类型为固定actionCard
-        //title	string	true	首屏会话透出的展示内容
-        //text	string	true	markdown格式的消息
-        //btns	array	true	按钮的信息：title-按钮方案，actionURL-点击按钮触发的URL
-        //btnOrientation	string	false	0-按钮竖直排列，1-按钮横向排列
-        //hideAvatar	string	false	0-正常发消息者头像，1-隐藏发消息者头像
         OapiRobotSendRequest.Actioncard actionCard = new OapiRobotSendRequest.Actioncard();
         actionCard.setTitle(title);
         actionCard.setText(markdownText);
         // 此处默认为0
         actionCard.setBtnOrientation(btnOrientation ? "1" : "0");
-        // 此处默认为0
-        actionCard.setHideAvatar(hideAvatar ? "1" : "0");
 
         actionCard.setBtns(btns);
 
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_ACTION_CARD);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_ACTION_CARD.getValue());
         request.setActionCard(actionCard);
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
-        try {
-            response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送ActionCard 类型消息]: 独立跳转ActionCard类型发送消息失败, 异常捕获{}", e.getMessage());
-        }
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
         return response;
     }
 
-    /** 
+    /**
      * @description: 发送FeedCard类型消息
+     *      msgtype	string	true	此消息类型为固定feedCard
+     *      title	string	true	单条信息文本
+     *      messageURL	string	true	点击单条信息到跳转链接(在钉钉内部打开，不能跳转到外部)
+     *      picURL	string	true	单条信息后面图片的URL
      * @param links
      * @return: com.dingtalk.api.response.OapiRobotSendResponse
      * @author: niaonao
@@ -310,25 +279,101 @@ public class RobotHelperUtil {
             return null;
         }
 
-        //msgtype	string	true	此消息类型为固定feedCard
-        //title	string	true	单条信息文本
-        //messageURL	string	true	点击单条信息到跳转链接
-        //picURL	string	true	单条信息后面图片的URL
         OapiRobotSendRequest.Feedcard feedcard = new  OapiRobotSendRequest.Feedcard();
         feedcard.setLinks(links);
         OapiRobotSendRequest request = new OapiRobotSendRequest();
-        request.setMsgtype(RobotHelperUtil.MSG_TYPE_FEED_CARD);
+        request.setMsgtype(MsgTypeEnum.MSG_TYPE_FEED_CARD.getValue());
         request.setFeedCard(feedcard);
-        OapiRobotSendResponse response = new OapiRobotSendResponse();
+        OapiRobotSendResponse response = (OapiRobotSendResponse) requestExecute(request);
+        return response;
+    }
+
+    /**
+     * SDK 请求
+     */
+    public static TaobaoResponse requestExecute(TaobaoRequest request){
+        TaobaoResponse response = null;
         try {
             response = RobotHelperUtil.client.execute(request);
-        } catch (ApiException e) {
-            log.error("[发送ActionCard 类型消息]: 独立跳转ActionCard类型发送消息失败, 异常捕获{}", e.getMessage());
+        } catch (Exception e) {
+            log.error("钉钉监控机器人发送消息失败, 异常捕获{}", e.getMessage());
         }
         return response;
     }
 
-    /*public static void main(String args[]) {
-        sdkDemoJava();
-    }*/
+    /**
+     * @param: accessToken  token
+     * @param: secret       加签密钥
+     * @description: 获取 serverUrl
+     * @return: java.lang.String
+     * @author: niaonao
+     */
+    private static String getServerUrl(String accessToken, String secret) {
+        StringBuilder serverUrl = new StringBuilder(accessToken);
+        // isSign 是否加签
+        if (!isSign) {
+            return serverUrl.toString();
+        }
+        try {
+            Long timestamp = System.currentTimeMillis();
+            String stringToSign = timestamp + "\n" + secret;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes("UTF-8"), "HmacSHA256"));
+            byte[] signData = mac.doFinal(stringToSign.getBytes("UTF-8"));
+            String sign = URLEncoder.encode(new String(Base64.encodeBase64(signData)),"UTF-8");
+
+            serverUrl.append("&timestamp=").append(timestamp)
+                    .append("&sign=").append(sign);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return serverUrl.toString();
+    }
+
+//    public static void main(String args[]) {
+//        // sdkDemoJava();
+//
+//        // @指定联系人
+//        /*String text = "这是文本消息，指定通知所有人";
+//        sendMessageByText(text, null, true);*/
+//
+//        // @所有人
+//        /*String title = "标题";
+//        String markdownText = "这是文本消息，指定通知到部分负责人";
+//        sendMessageByMarkdown(title, markdownText, Arrays.asList("17788559966"), false);*/
+//
+//        /*// 顶顶外部打开指定链接
+//        String title = "标题";
+//        String text = "内容";
+//        String messageUrl = "https://blog.csdn.net/niaonao";
+//        String picUrl = "https://img-blog.csdnimg.cn/img_convert/4f1819e8d505bfccef524ba36f18f527.png";
+//        sendMessageByLink(title, text, messageUrl, picUrl);*/
+//
+//        /*String title = "标题";
+//        String markdownText = "内容";
+//        String singleTitle = "标题";
+//        String singleUrl = "https://developers.blog.csdn.net/article/details/94960092";
+//        sendMessageByActionCardSingle(title, markdownText, singleTitle, singleUrl, false);*/
+//
+//        /*String title = "标题";
+//        String markdownText = "内容";
+//        List<OapiRobotSendRequest.Btns> btnList = new ArrayList<>();
+//        OapiRobotSendRequest.Btns btnDevelopers = new OapiRobotSendRequest.Btns();
+//        btnDevelopers.setActionURL("https://developers.blog.csdn.net/article/details/94960092");
+//        btnDevelopers.setTitle("developers 的博客");
+//        OapiRobotSendRequest.Btns btnNiaonao = new OapiRobotSendRequest.Btns();
+//        btnNiaonao.setActionURL("https://blog.csdn.net/niaonao");
+//        btnNiaonao.setTitle("niaonao 的博客");
+//        btnList.add(btnDevelopers);
+//        btnList.add(btnNiaonao);
+//        sendMessageByActionCardMulti(title, markdownText, btnList,true);*/
+//
+//        /*List<OapiRobotSendRequest.Links> links = new ArrayList<>();
+//        OapiRobotSendRequest.Links linkBlog = new OapiRobotSendRequest.Links();
+//        linkBlog.setTitle("博客地址");
+//        linkBlog.setMessageURL("https://developers.blog.csdn.net");
+//        linkBlog.setPicURL("https://img-blog.csdnimg.cn/img_convert/4f1819e8d505bfccef524ba36f18f527.png");
+//        links.add(linkBlog);
+//        sendMessageByFeedCard(links);*/
+//    }
 }

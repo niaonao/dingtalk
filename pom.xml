@@ -35,11 +35,17 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- 钉钉机器人: https://open-doc.dingtalk.com/microapp/serverapi2/qf2nxq -->
+        <!-- 钉钉机器人: https://developers.dingtalk.com/document/app/overview-of-group-robots -->
+        <!-- https://mvnrepository.com/artifact/com.aliyun/alibaba-dingtalk-service-sdk -->
         <dependency>
-            <groupId>com.dingtalk</groupId>
-            <artifactId>com-dingtalk-api</artifactId>
-            <version>1.0.0</version>
+            <groupId>com.aliyun</groupId>
+            <artifactId>alibaba-dingtalk-service-sdk</artifactId>
+            <version>1.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>commons-codec</groupId>
+            <artifactId>commons-codec</artifactId>
+            <version>1.10</version>
         </dependency>
 
         <!-- 日志管理: https://mvnrepository.com/artifact/org.projectlombok/lombok -->

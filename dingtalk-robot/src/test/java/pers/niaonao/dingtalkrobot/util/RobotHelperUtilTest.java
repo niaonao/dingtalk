@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -32,14 +33,14 @@ public class RobotHelperUtilTest {
     @Test
     public void sendMessageByText() {
         String content = "系统运行异常, 服务器224.2.2.102通信失败!";
-        response = RobotHelperUtil.sendMessageByText(content, null, false);
+        response = RobotHelperUtil.sendMessageByText(content, Arrays.asList("17788559966"), false);
     }
 
     @Test
     public void sendMessageByLink() {
         String title = "自定义机器人";
         String text = "听说你在测试钉钉机器人, 悟空推荐看下钉钉开发文档自定义机器人";
-        String messageUrl = "https://open-doc.dingtalk.com/microapp/serverapi3/iydd5h";
+        String messageUrl = "https://blog.csdn.net/niaonao";
         String picUrl = "http://img01.taobaocdn.com/top/i1/LB1lIUlPFXXXXbGXFXXXXXXXXXX#align=left&display=inline&height=294&originHeight=1372&originWidth=2088&status=done&width=447";
         response = RobotHelperUtil.sendMessageByLink(title, text, messageUrl, picUrl);
     }
@@ -49,18 +50,18 @@ public class RobotHelperUtilTest {
         String title = "悟空建议你看下Markdown 语法";
         String markdownText =
                 "## 列表\n" +
-                "无序列表\n" +
+                        "无序列表\n" +
                         "- item1\n" +
                         "- item2\n" +
-                "## 代码片\n" +
-                "```java\n" +
-                "public void sendMessageByMarkdown() {\n" +
-                "        String title = \"title\";\n" +
-                "        String markdownText = \"text\";\n" +
-                "        response = RobotHelperUtil.sendMessageByMarkdown(title, markdownText,null, false);\n" +
-                "    }\n" +
-                "```";
-        response = RobotHelperUtil.sendMessageByMarkdown(title, markdownText,null, false);
+                        "## 代码片\n" +
+                        "```java\n" +
+                        "public void sendMessageByMarkdown() {\n" +
+                        "        String title = \"title\";\n" +
+                        "        String markdownText = \"text\";\n" +
+                        "        response = RobotHelperUtil.sendMessageByMarkdown(title, markdownText,null, false);\n" +
+                        "    }\n" +
+                        "```";
+        response = RobotHelperUtil.sendMessageByMarkdown(title, markdownText, Arrays.asList("17788559966"), false);
     }
 
     @Test
@@ -69,7 +70,7 @@ public class RobotHelperUtilTest {
         String markdownText = "### 消息内容";
         String singleTitle = "查看原文";
         String singleURL = "https://open-doc.dingtalk.com/microapp/serverapi3/iydd5h";
-        response = RobotHelperUtil.sendMessageByActionCardSingle(title, markdownText, singleTitle, singleURL, true, true);
+        response = RobotHelperUtil.sendMessageByActionCardSingle(title, markdownText, singleTitle, singleURL, true);
 
     }
 
@@ -85,7 +86,7 @@ public class RobotHelperUtilTest {
             btn.setTitle("Button 标题" + btns.indexOf(btn));
             btn.setActionURL("https://open-doc.dingtalk.com/microapp/serverapi3/iydd5h");
         });
-        response = RobotHelperUtil.sendMessageByActionCardMulti(title, markdownText, btns, true, true);
+        response = RobotHelperUtil.sendMessageByActionCardMulti(title, markdownText, btns, true);
     }
 
     @Test
